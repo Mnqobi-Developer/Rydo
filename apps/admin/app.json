@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Rydo Admin",
+    "slug": "rydo-admin",
+    "scheme": "rydo-admin",
+    "platforms": [
+      "web"
+    ],
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

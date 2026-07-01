@@ -7,7 +7,9 @@ public sealed class Trip
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid PassengerId { get; set; }
     public Guid? DriverProfileId { get; set; }
+    public DriverProfile? DriverProfile { get; set; }
     public RideType RideType { get; set; } = RideType.RydoGo;
+    public PaymentMethod PreferredPaymentMethod { get; set; } = PaymentMethod.Cash;
     public TripStatus Status { get; set; } = TripStatus.Requested;
     public string PickupAddress { get; set; } = string.Empty;
     public Point PickupPoint { get; set; } = null!;

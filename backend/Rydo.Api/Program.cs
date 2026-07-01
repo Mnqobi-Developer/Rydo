@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 using NetTopologySuite;
 using Rydo.Api.Data;
 using Rydo.Api.Hubs;
@@ -11,7 +12,33 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "Paste the JWT access token returned by /api/auth/otp/verify.",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
+    });
+
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            []
+        }
+    });
+});
 builder.Services.AddSignalR();
 
 builder.Services.AddDbContext<RydoDbContext>(options =>
@@ -98,5 +125,32 @@ app.MapHub<RideHub>("/hubs/rides");
 app.MapHub<AdminHub>("/hubs/admin");
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "Rydo.Api" }));
+
+app.UseExceptionHandler(exceptionHandlerApp =>
+{
+    exceptionHandlerApp.Run(async context =>
+    {
+        var exception = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+        context.Response.ContentType = "application/problem+json";
+
+        if (exception is GoogleMapsConfigurationException)
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                title = "Google Maps is not configured",
+                detail = "Set GoogleMaps:ApiKey using user secrets or an environment variable."
+            });
+            return;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status502BadGateway;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            title = "External map request failed",
+            detail = app.Environment.IsDevelopment() ? exception?.Message : null
+        });
+    });
+});
 
 app.Run();

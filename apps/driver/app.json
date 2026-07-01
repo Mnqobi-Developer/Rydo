@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Rydo Driver",
+    "slug": "rydo-driver",
+    "scheme": "rydo-driver",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "../../assets/icon.png",
+    "userInterfaceStyle": "light",
+    "web": {
+      "bundler": "metro",
+      "favicon": "../../assets/favicon.png"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "za.co.rydo.driver"
+    },
+    "android": {
+      "package": "za.co.rydo.driver",
+      "adaptiveIcon": {
+        "backgroundColor": "#0757D8",
+        "foregroundImage": "../../assets/android-icon-foreground.png"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ]
+  }
+}

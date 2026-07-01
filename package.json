@@ -1,26 +1,22 @@
 {
-  "name": "rydo",
+  "name": "rydo-monorepo",
   "version": "1.0.0",
-  "main": "index.ts",
-  "dependencies": {
-    "@expo/vector-icons": "^15.0.2",
-    "expo": "~56.0.7",
-    "expo-linear-gradient": "~56.0.4",
-    "expo-status-bar": "~56.0.4",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "react-native": "0.85.3",
-    "react-native-web": "^0.21.2"
-  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "dependencies": {},
   "devDependencies": {
-    "@types/react": "~19.2.2",
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "passenger": "npm run start -w @rydo/passenger",
+    "passenger:web": "npm run web -w @rydo/passenger -- --port 8082 --host localhost",
+    "driver": "npm run start -w @rydo/driver",
+    "driver:web": "npm run web -w @rydo/driver -- --port 8083 --host localhost",
+    "admin": "npm run start -w @rydo/admin",
+    "admin:web": "npm run web -w @rydo/admin -- --port 8084 --host localhost",
+    "typecheck": "npm run typecheck -w @rydo/passenger && npm run typecheck -w @rydo/driver && npm run typecheck -w @rydo/admin"
   },
   "private": true
 }

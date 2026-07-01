@@ -32,6 +32,8 @@ public sealed class AuthController(RydoDbContext db, JwtTokenService tokens) : C
         }
 
         var phone = request.PhoneNumber.Trim();
+        var displayName = string.IsNullOrWhiteSpace(request.DisplayName) ? null : request.DisplayName.Trim();
+        var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim().ToLowerInvariant();
         var user = await db.Users.FirstOrDefaultAsync(x => x.PhoneNumber == phone, cancellationToken);
 
         if (user is null)
@@ -39,6 +41,8 @@ public sealed class AuthController(RydoDbContext db, JwtTokenService tokens) : C
             user = new AppUser
             {
                 PhoneNumber = phone,
+                DisplayName = displayName,
+                Email = email,
                 Role = request.Role,
                 IsPhoneVerified = true
             };
@@ -49,9 +53,45 @@ public sealed class AuthController(RydoDbContext db, JwtTokenService tokens) : C
         {
             user.IsPhoneVerified = true;
             user.Role = request.Role;
+            user.DisplayName = displayName ?? user.DisplayName;
+            user.Email = email ?? user.Email;
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        return Ok(new AuthResponse(user.Id, user.Role, tokens.CreateToken(user)));
+
+        Guid? driverProfileId = null;
+        if (user.Role == UserRole.Driver)
+        {
+            var driver = await db.Drivers
+                .Include(x => x.Vehicles)
+                .FirstOrDefaultAsync(x => x.UserId == user.Id, cancellationToken);
+
+            if (driver is null)
+            {
+                driver = new DriverProfile
+                {
+                    UserId = user.Id,
+                    IsVerified = true,
+                    RatingAverage = 4.8m,
+                    RatingCount = 12
+                };
+
+                driver.Vehicles.Add(new Vehicle
+                {
+                    Make = "Toyota",
+                    Model = "Corolla",
+                    Colour = "White",
+                    NumberPlate = "CAA 123 GP",
+                    SupportedRideType = RideType.RydoGo
+                });
+
+                db.Drivers.Add(driver);
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            driverProfileId = driver.Id;
+        }
+
+        return Ok(new AuthResponse(user.Id, user.Role, tokens.CreateToken(user), driverProfileId, user.DisplayName, user.Email));
     }
 }

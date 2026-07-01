@@ -8,15 +8,34 @@ public sealed class RideNotificationService(IHubContext<RideHub> rides, IHubCont
 {
     public Task NotifyTripUpdatedAsync(Trip trip)
     {
+        var vehicle = trip.DriverProfile?.Vehicles.FirstOrDefault(x => x.IsActive) ?? trip.DriverProfile?.Vehicles.FirstOrDefault();
+        var driver = trip.DriverProfile is null
+            ? null
+            : new
+            {
+                DriverProfileId = trip.DriverProfile.Id,
+                UserId = trip.DriverProfile.UserId,
+                Name = trip.DriverProfile.User.DisplayName ?? "Rydo Driver",
+                trip.DriverProfile.RatingAverage,
+                trip.DriverProfile.IsVerified,
+                trip.DriverProfile.PhotoUrl,
+                VehicleModel = vehicle is null ? null : $"{vehicle.Make} {vehicle.Model}".Trim(),
+                VehicleColour = vehicle?.Colour,
+                vehicle?.NumberPlate
+            };
+
         var payload = new
         {
+            TripId = trip.Id,
             trip.Id,
             trip.PassengerId,
             trip.DriverProfileId,
             trip.Status,
             trip.EstimatedFare,
+            trip.PreferredPaymentMethod,
             trip.PickupAddress,
-            trip.DestinationAddress
+            trip.DestinationAddress,
+            Driver = driver
         };
 
         return Task.WhenAll(
@@ -28,10 +47,13 @@ public sealed class RideNotificationService(IHubContext<RideHub> rides, IHubCont
     {
         return rides.Clients.Group(RideHub.DriverGroup(driverProfileId)).SendAsync("ride.requested", new
         {
+            TripId = trip.Id,
             trip.Id,
+            trip.PassengerId,
             trip.PickupAddress,
             trip.DestinationAddress,
             trip.EstimatedFare,
+            trip.PreferredPaymentMethod,
             trip.RideType
         });
     }
@@ -43,5 +65,15 @@ public sealed class RideNotificationService(IHubContext<RideHub> rides, IHubCont
         return Task.WhenAll(
             rides.Clients.Group(RideHub.DriverGroup(driverProfileId)).SendAsync("driver.location", payload),
             admin.Clients.Group(AdminHub.LiveMapGroup).SendAsync("driver.location", payload));
+    }
+
+    public Task NotifyDriverAvailabilityAsync(Guid driverProfileId, bool isOnline)
+    {
+        return admin.Clients.Group(AdminHub.LiveMapGroup).SendAsync("driver.availability", new
+        {
+            driverProfileId,
+            isOnline,
+            recordedAtUtc = DateTimeOffset.UtcNow
+        });
     }
 }
