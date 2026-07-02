@@ -19,6 +19,17 @@ public sealed class RatingsController(RydoDbContext db) : ControllerBase
             return BadRequest(new { error = "Stars must be between 1 and 5." });
         }
 
+        var trip = await db.Trips.FindAsync([request.TripId], cancellationToken);
+        if (trip is null)
+        {
+            return NotFound(new { error = "Trip not found." });
+        }
+
+        if (trip.Status != TripStatus.Completed)
+        {
+            return Conflict(new { error = "Ratings can only be submitted for completed trips." });
+        }
+
         db.Ratings.Add(new Rating
         {
             TripId = request.TripId,

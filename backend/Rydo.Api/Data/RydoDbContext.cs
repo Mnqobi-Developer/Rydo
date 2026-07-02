@@ -24,6 +24,7 @@ public sealed class RydoDbContext(DbContextOptions<RydoDbContext> options) : DbC
             entity.HasIndex(x => x.PhoneNumber).IsUnique();
             entity.Property(x => x.PhoneNumber).HasMaxLength(32);
             entity.Property(x => x.DisplayName).HasMaxLength(120);
+            entity.Property(x => x.Email).HasMaxLength(254);
         });
 
         modelBuilder.Entity<DriverProfile>(entity =>
@@ -46,6 +47,7 @@ public sealed class RydoDbContext(DbContextOptions<RydoDbContext> options) : DbC
             entity.Property(x => x.DestinationPoint).HasColumnType("geography(Point,4326)");
             entity.Property(x => x.EstimatedFare).HasPrecision(12, 2);
             entity.Property(x => x.FinalFare).HasPrecision(12, 2);
+            entity.Property(x => x.PreferredPaymentMethod).HasDefaultValue(PaymentMethod.Cash);
         });
 
         modelBuilder.Entity<Payment>(entity =>

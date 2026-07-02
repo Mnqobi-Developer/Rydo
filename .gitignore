@@ -5,6 +5,9 @@ node_modules/
 
 # Expo
 .expo/
+expo-web.log
+*-web.log
+*.log
 dist/
 web-build/
 expo-env.d.ts
@@ -36,6 +39,13 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# .NET
+**/bin/
+**/obj/
+
 # generated native folders
 /ios
 /android
+
+# environment files
+.env

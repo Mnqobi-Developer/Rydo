@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Rydo.Api.Contracts;
 using Rydo.Api.Data;
 using Rydo.Api.Domain;
@@ -18,6 +19,17 @@ public sealed class PaymentsController(RydoDbContext db) : ControllerBase
         if (trip is null)
         {
             return NotFound(new { error = "Trip not found." });
+        }
+
+        var existingPayment = await db.Payments.FirstOrDefaultAsync(x => x.TripId == request.TripId, cancellationToken);
+        if (existingPayment is not null)
+        {
+            existingPayment.Method = request.Method;
+            existingPayment.Amount = request.Amount;
+            existingPayment.Status = request.Method == PaymentMethod.Cash ? PaymentStatus.Pending : PaymentStatus.Paid;
+            existingPayment.PaidAtUtc = request.Method == PaymentMethod.Cash ? null : DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+            return Ok(ToResponse(existingPayment));
         }
 
         var payment = new Payment
