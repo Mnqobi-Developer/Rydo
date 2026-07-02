@@ -98,8 +98,10 @@ function PassengerAuthScreen({ mode }: { mode: 'signIn' | 'signUp' }) {
     setSubmitting(true);
     setError('');
     try {
-      await requestOtp(formattedPhone);
-      router.push({ pathname: '/otp', params: { phone: formattedPhone, mode, displayName: displayName.trim(), email: email.trim() } });
+      const normalizedEmail = email.trim().toLowerCase();
+      const channel = signingUp ? 'email' : 'phone';
+      await requestOtp(formattedPhone, signingUp ? normalizedEmail : undefined, channel);
+      router.push({ pathname: '/otp', params: { phone: formattedPhone, mode, displayName: displayName.trim(), email: normalizedEmail, channel } });
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError));
     } finally {
@@ -143,11 +145,14 @@ function PassengerAuthScreen({ mode }: { mode: 'signIn' | 'signUp' }) {
 
 export function OtpScreen() {
   const layout = usePassengerLayout();
-  const params = useLocalSearchParams<{ phone?: string; mode?: string; displayName?: string; email?: string }>();
+  const params = useLocalSearchParams<{ phone?: string; mode?: string; displayName?: string; email?: string; channel?: string }>();
   const phoneNumber = typeof params.phone === 'string' ? params.phone : '';
   const signingUp = params.mode === 'signUp';
   const displayName = typeof params.displayName === 'string' ? params.displayName : undefined;
   const email = typeof params.email === 'string' ? params.email : undefined;
+  const channel = params.channel === 'email' ? 'email' : 'phone';
+  const verificationTarget = channel === 'email' ? email : phoneNumber;
+  const verificationLabel = channel === 'email' ? 'email' : 'phone';
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -161,14 +166,14 @@ export function OtpScreen() {
     }
 
     if (code.length !== 6) {
-      setError('Enter the 6-digit code sent to your phone.');
+      setError(`Enter the 6-digit code sent to your ${verificationLabel}.`);
       return;
     }
 
     setSubmitting(true);
     setError('');
     try {
-      await verifyOtp(phoneNumber, code, signingUp ? { displayName, email } : undefined);
+      await verifyOtp(phoneNumber, code, signingUp ? { displayName, email } : undefined, channel);
       router.replace('/home');
     } catch (verifyError) {
       setError(getRequestErrorMessage(verifyError));
@@ -185,7 +190,7 @@ export function OtpScreen() {
 
     setError('');
     try {
-      await requestOtp(phoneNumber);
+      await requestOtp(phoneNumber, email, channel);
       Alert.alert('Code sent', 'A new verification code has been requested.');
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError));
@@ -197,8 +202,8 @@ export function OtpScreen() {
       <View style={[styles.page, layout.compact && styles.pageCompact, layout.short && styles.pageShort]}>
         <IconButton icon="chevron-back" onPress={() => safeBack('/login')} />
         <View style={styles.section}>
-          <Text style={textStyles.heading}>Verify Your Number</Text>
-          <Text style={textStyles.body}>We've sent a 6-digit code to <Text style={textStyles.link}>{phoneNumber || 'your phone'}</Text> to {signingUp ? 'create your account' : 'sign you in'}.</Text>
+          <Text style={textStyles.heading}>{channel === 'email' ? 'Verify Your Email' : 'Verify Your Number'}</Text>
+          <Text style={textStyles.body}>We've sent a 6-digit code to <Text style={textStyles.link}>{verificationTarget || `your ${verificationLabel}`}</Text> to {signingUp ? 'create your account' : 'sign you in'}.</Text>
         </View>
         <Pressable style={styles.otpEntry} onPress={() => otpInputRef.current?.focus()}>
           <View style={styles.otpRow}>
@@ -219,7 +224,7 @@ export function OtpScreen() {
         <Pressable onPress={() => void resendCode()}><Text style={[textStyles.link, styles.center]}>Resend code</Text></Pressable>
         <Card style={styles.infoCard}>
           <Ionicons name="shield-checkmark" size={36} color={colors.blue} />
-          <View style={styles.flex}><Text style={styles.strong}>Secure verification</Text><Text style={styles.muted}>Your phone number is safe with us.</Text></View>
+          <View style={styles.flex}><Text style={styles.strong}>Secure verification</Text><Text style={styles.muted}>Your {verificationLabel} is safe with us.</Text></View>
         </Card>
         <View style={styles.bottom}><PrimaryButton label={submitting ? 'Verifying...' : 'Verify and Continue'} disabled={submitting} onPress={() => void verifyCode()} /></View>
       </View>

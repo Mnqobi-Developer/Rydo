@@ -22,6 +22,7 @@ public sealed class RydoDbContext(DbContextOptions<RydoDbContext> options) : DbC
         modelBuilder.Entity<AppUser>(entity =>
         {
             entity.HasIndex(x => x.PhoneNumber).IsUnique();
+            entity.HasIndex(x => x.Email).IsUnique().HasFilter("\"Email\" IS NOT NULL");
             entity.Property(x => x.PhoneNumber).HasMaxLength(32);
             entity.Property(x => x.DisplayName).HasMaxLength(120);
             entity.Property(x => x.Email).HasMaxLength(254);

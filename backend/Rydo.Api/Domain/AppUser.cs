@@ -8,6 +8,7 @@ public sealed class AppUser
     public string? Email { get; set; }
     public UserRole Role { get; set; } = UserRole.Passenger;
     public bool IsPhoneVerified { get; set; }
+    public bool IsEmailVerified { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public DriverProfile? DriverProfile { get; set; }
 }

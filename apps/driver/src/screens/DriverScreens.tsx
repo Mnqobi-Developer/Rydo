@@ -86,8 +86,10 @@ function DriverAuthScreen({ mode }: { mode: 'signIn' | 'signUp' }) {
     setSubmitting(true);
     setError('');
     try {
-      await requestOtp(formattedPhone);
-      router.push({ pathname: '/otp', params: { phone: formattedPhone, mode, displayName: displayName.trim(), email: email.trim() } });
+      const normalizedEmail = email.trim().toLowerCase();
+      const channel = signingUp ? 'email' : 'phone';
+      await requestOtp(formattedPhone, signingUp ? normalizedEmail : undefined, channel);
+      router.push({ pathname: '/otp', params: { phone: formattedPhone, mode, displayName: displayName.trim(), email: normalizedEmail, channel } });
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError));
     } finally {
@@ -120,11 +122,14 @@ function DriverAuthScreen({ mode }: { mode: 'signIn' | 'signUp' }) {
 
 export function DriverOtpScreen() {
   const layout = useDriverLayout();
-  const params = useLocalSearchParams<{ phone?: string; mode?: string; displayName?: string; email?: string }>();
+  const params = useLocalSearchParams<{ phone?: string; mode?: string; displayName?: string; email?: string; channel?: string }>();
   const phoneNumber = typeof params.phone === 'string' ? params.phone : '';
   const signingUp = params.mode === 'signUp';
   const displayName = typeof params.displayName === 'string' ? params.displayName : undefined;
   const email = typeof params.email === 'string' ? params.email : undefined;
+  const channel = params.channel === 'email' ? 'email' : 'phone';
+  const verificationTarget = channel === 'email' ? email : phoneNumber;
+  const verificationLabel = channel === 'email' ? 'email' : 'phone';
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -138,14 +143,14 @@ export function DriverOtpScreen() {
     }
 
     if (code.length !== 6) {
-      setError('Enter the 6-digit code sent to your phone.');
+      setError(`Enter the 6-digit code sent to your ${verificationLabel}.`);
       return;
     }
 
     setSubmitting(true);
     setError('');
     try {
-      await verifyOtp(phoneNumber, code, signingUp ? { displayName, email } : undefined);
+      await verifyOtp(phoneNumber, code, signingUp ? { displayName, email } : undefined, channel);
       router.replace('/home');
     } catch (verifyError) {
       setError(getRequestErrorMessage(verifyError));
@@ -162,7 +167,7 @@ export function DriverOtpScreen() {
 
     setError('');
     try {
-      await requestOtp(phoneNumber);
+      await requestOtp(phoneNumber, email, channel);
       Alert.alert('Code sent', 'A new verification code has been requested.');
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError));
@@ -174,8 +179,8 @@ export function DriverOtpScreen() {
       <View style={[styles.page, layout.content, layout.compact && styles.pageCompact]}>
         <IconButton icon="chevron-back" onPress={() => safeBack('/login')} />
         <View style={styles.section}>
-          <Text style={textStyles.heading}>Verify Your Number</Text>
-          <Text style={textStyles.body}>We've sent a 6-digit code to <Text style={textStyles.link}>{phoneNumber || 'your phone'}</Text> to {signingUp ? 'create your driver account' : 'sign you in'}.</Text>
+          <Text style={textStyles.heading}>{channel === 'email' ? 'Verify Your Email' : 'Verify Your Number'}</Text>
+          <Text style={textStyles.body}>We've sent a 6-digit code to <Text style={textStyles.link}>{verificationTarget || `your ${verificationLabel}`}</Text> to {signingUp ? 'create your driver account' : 'sign you in'}.</Text>
         </View>
         <Pressable style={styles.otpEntry} onPress={() => otpInputRef.current?.focus()}>
           <View style={styles.otpRow}>

@@ -25,11 +25,12 @@ public sealed class JwtTokenService(IConfiguration configuration)
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey)),
             SecurityAlgorithms.HmacSha256);
 
+        var lifetimeMinutes = jwt.GetValue("AccessTokenMinutes", 240);
         var token = new JwtSecurityToken(
             issuer: jwt["Issuer"],
             audience: jwt["Audience"],
             claims: claims,
-            expires: DateTime.UtcNow.AddDays(30),
+            expires: DateTime.UtcNow.AddMinutes(lifetimeMinutes),
             signingCredentials: credentials);
 
         return new JwtSecurityTokenHandler().WriteToken(token);

@@ -1,11 +1,12 @@
 using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Caching.Memory;
 using Rydo.Api.Domain;
 
 namespace Rydo.Api.Services;
 
-public sealed class GoogleMapsService(IConfiguration configuration, HttpClient httpClient, PricingService pricing)
+public sealed class GoogleMapsService(IConfiguration configuration, HttpClient httpClient, PricingService pricing, IMemoryCache cache)
 {
     private const string PlacesBaseUrl = "https://places.googleapis.com/v1";
     private const string RoutesUrl = "https://routes.googleapis.com/directions/v2:computeRoutes";
@@ -20,6 +21,11 @@ public sealed class GoogleMapsService(IConfiguration configuration, HttpClient h
         CancellationToken cancellationToken)
     {
         EnsureConfigured();
+        var cacheKey = $"maps:autocomplete:{input.Trim().ToLowerInvariant()}:{latitude?.ToString("F4", CultureInfo.InvariantCulture)}:{longitude?.ToString("F4", CultureInfo.InvariantCulture)}";
+        if (cache.TryGetValue(cacheKey, out IReadOnlyList<PlaceSuggestion>? cachedSuggestions) && cachedSuggestions is not null)
+        {
+            return cachedSuggestions;
+        }
 
         var body = new PlacesAutocompleteRequest(
             input,
@@ -41,18 +47,26 @@ public sealed class GoogleMapsService(IConfiguration configuration, HttpClient h
         await EnsureSuccessAsync(response, cancellationToken);
 
         var result = await response.Content.ReadFromJsonAsync<PlacesAutocompleteResponse>(cancellationToken: cancellationToken);
-        return result?.Suggestions
+        var suggestions = result?.Suggestions
             .Where(x => x.PlacePrediction is not null)
             .Select(x => new PlaceSuggestion(
                 x.PlacePrediction!.PlaceId,
                 x.PlacePrediction.StructuredFormat?.MainText?.Text ?? x.PlacePrediction.Text?.Text ?? string.Empty,
                 x.PlacePrediction.StructuredFormat?.SecondaryText?.Text ?? string.Empty))
             .ToList() ?? [];
+
+        cache.Set(cacheKey, suggestions, TimeSpan.FromMinutes(configuration.GetValue("Caching:MapsAutocompleteMinutes", 10)));
+        return suggestions;
     }
 
     public async Task<PlaceDetails?> GetPlaceAsync(string placeId, CancellationToken cancellationToken)
     {
         EnsureConfigured();
+        var cacheKey = $"maps:place:{placeId}";
+        if (cache.TryGetValue(cacheKey, out PlaceDetails? cachedPlace) && cachedPlace is not null)
+        {
+            return cachedPlace;
+        }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, $"{PlacesBaseUrl}/places/{Uri.EscapeDataString(placeId)}");
         request.Headers.Add("X-Goog-Api-Key", ApiKey);
@@ -62,7 +76,7 @@ public sealed class GoogleMapsService(IConfiguration configuration, HttpClient h
         await EnsureSuccessAsync(response, cancellationToken);
 
         var place = await response.Content.ReadFromJsonAsync<GooglePlaceDetails>(cancellationToken: cancellationToken);
-        return place?.Location is null
+        var placeDetails = place?.Location is null
             ? null
             : new PlaceDetails(
                 place.Id,
@@ -70,6 +84,13 @@ public sealed class GoogleMapsService(IConfiguration configuration, HttpClient h
                 place.FormattedAddress ?? string.Empty,
                 place.Location.Latitude,
                 place.Location.Longitude);
+
+        if (placeDetails is not null)
+        {
+            cache.Set(cacheKey, placeDetails, TimeSpan.FromMinutes(configuration.GetValue("Caching:MapsPlaceMinutes", 60)));
+        }
+
+        return placeDetails;
     }
 
     public async Task<RouteEstimate?> ComputeRouteAsync(
@@ -81,6 +102,11 @@ public sealed class GoogleMapsService(IConfiguration configuration, HttpClient h
         CancellationToken cancellationToken)
     {
         EnsureConfigured();
+        var cacheKey = string.Create(CultureInfo.InvariantCulture, $"maps:route:{originLatitude:F5}:{originLongitude:F5}:{destinationLatitude:F5}:{destinationLongitude:F5}:{(int)rideType}");
+        if (cache.TryGetValue(cacheKey, out RouteEstimate? cachedRoute) && cachedRoute is not null)
+        {
+            return cachedRoute;
+        }
 
         var body = new GoogleComputeRouteRequest(
             new Waypoint(new WaypointLocation(new LatLng(originLatitude, originLongitude))),
@@ -111,7 +137,9 @@ public sealed class GoogleMapsService(IConfiguration configuration, HttpClient h
         var durationSeconds = ParseDurationSeconds(route.Duration);
         var estimatedFare = pricing.EstimateFare(rideType, route.DistanceMeters, durationSeconds);
 
-        return new RouteEstimate(route.DistanceMeters, durationSeconds, route.Polyline?.EncodedPolyline ?? string.Empty, estimatedFare);
+        var estimate = new RouteEstimate(route.DistanceMeters, durationSeconds, route.Polyline?.EncodedPolyline ?? string.Empty, estimatedFare);
+        cache.Set(cacheKey, estimate, TimeSpan.FromMinutes(configuration.GetValue("Caching:MapsRouteMinutes", 10)));
+        return estimate;
     }
 
     private void EnsureConfigured()
