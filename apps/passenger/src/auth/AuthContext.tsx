@@ -1,15 +1,15 @@
 import * as SecureStore from 'expo-secure-store';
 import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
-import { AuthSession, requestPassengerOtp, verifyPassengerOtp } from './authApi';
+import { AuthSession, type OtpChannel, requestPassengerOtp, verifyPassengerOtp } from './authApi';
 
 const storageKey = 'rydo.passenger.auth';
 
 type AuthState = {
   loading: boolean;
   session?: AuthSession;
-  requestOtp: (phoneNumber: string) => Promise<void>;
-  verifyOtp: (phoneNumber: string, code: string, profile?: { displayName?: string; email?: string }) => Promise<void>;
+  requestOtp: (phoneNumber: string, email?: string, channel?: OtpChannel) => Promise<void>;
+  verifyOtp: (phoneNumber: string, code: string, profile?: { displayName?: string; email?: string }, channel?: OtpChannel) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -43,11 +43,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     () => ({
       loading,
       session,
-      requestOtp: async (phoneNumber) => {
-        await requestPassengerOtp(phoneNumber);
+      requestOtp: async (phoneNumber, email, channel = 'phone') => {
+        await requestPassengerOtp(phoneNumber, email, channel);
       },
-      verifyOtp: async (phoneNumber, code, profile) => {
-        const nextSession = await verifyPassengerOtp(phoneNumber, code, profile);
+      verifyOtp: async (phoneNumber, code, profile, channel = 'phone') => {
+        const nextSession = await verifyPassengerOtp(phoneNumber, code, profile, channel);
         await writeSession(nextSession);
         setSession(nextSession);
       },

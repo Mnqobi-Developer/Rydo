@@ -22,19 +22,26 @@ type AuthResponse = {
   email?: string | null;
 };
 
-export async function requestDriverOtp(phoneNumber: string) {
-  return request<{ phoneNumber: string; expiresInSeconds: number; developmentCode?: string }>('/api/auth/otp/request', {
+export type OtpChannel = 'phone' | 'email';
+
+const otpChannelIds: Record<OtpChannel, number> = {
+  phone: 1,
+  email: 2,
+};
+
+export async function requestDriverOtp(phoneNumber: string, email?: string, channel: OtpChannel = 'phone') {
+  return request<{ phoneNumber?: string; email?: string; expiresInSeconds: number; developmentCode?: string }>('/api/auth/otp/request', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber, role: 2 }),
+    body: JSON.stringify({ phoneNumber, email, role: 2, channel: otpChannelIds[channel] }),
   });
 }
 
-export async function verifyDriverOtp(phoneNumber: string, code: string, profile?: { displayName?: string; email?: string }): Promise<DriverAuthSession> {
+export async function verifyDriverOtp(phoneNumber: string, code: string, profile?: { displayName?: string; email?: string }, channel: OtpChannel = 'phone'): Promise<DriverAuthSession> {
   const response = await request<AuthResponse>('/api/auth/otp/verify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber, code, role: 2, displayName: profile?.displayName, email: profile?.email }),
+    body: JSON.stringify({ phoneNumber, code, role: 2, displayName: profile?.displayName, email: profile?.email, channel: otpChannelIds[channel] }),
   });
 
   return { ...response, phoneNumber };

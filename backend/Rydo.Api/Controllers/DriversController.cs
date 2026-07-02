@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 using Rydo.Api.Contracts;
@@ -18,6 +19,7 @@ public sealed class DriversController(
     RideNotificationService notifications) : ControllerBase
 {
     [HttpPost("{driverProfileId:guid}/availability")]
+    [EnableRateLimiting("trips")]
     public async Task<ActionResult> SetAvailability(Guid driverProfileId, SetDriverAvailabilityRequest request, CancellationToken cancellationToken)
     {
         var driver = await db.Drivers.FindAsync([driverProfileId], cancellationToken);
@@ -96,6 +98,7 @@ public sealed class DriversController(
     }
 
     [HttpPut("{driverProfileId:guid}/location")]
+    [EnableRateLimiting("driver-location")]
     public async Task<ActionResult> UpdateLocation(Guid driverProfileId, UpdateDriverLocationRequest request, CancellationToken cancellationToken)
     {
         var driverExists = await db.Drivers.AnyAsync(x => x.Id == driverProfileId, cancellationToken);

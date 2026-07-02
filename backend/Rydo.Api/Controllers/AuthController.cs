@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using System.Net.Mail;
 using Rydo.Api.Contracts;
 using Rydo.Api.Data;
 using Rydo.Api.Domain;
@@ -9,21 +11,37 @@ namespace Rydo.Api.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-public sealed class AuthController(RydoDbContext db, JwtTokenService tokens) : ControllerBase
+public sealed class AuthController(RydoDbContext db, JwtTokenService tokens, IConfiguration configuration, IWebHostEnvironment environment) : ControllerBase
 {
     [HttpPost("otp/request")]
+    [EnableRateLimiting("otp")]
     public ActionResult RequestOtp(RequestOtpRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.PhoneNumber))
+        var phone = NormalizePhone(request.PhoneNumber);
+        var email = NormalizeEmail(request.Email);
+
+        if (request.Channel == OtpChannel.Email)
+        {
+            if (!IsValidEmail(email))
+            {
+                return BadRequest(new { error = "A valid email address is required." });
+            }
+
+            // MVP placeholder. Replace with an email provider such as SendGrid, SES, or Postmark before production.
+            return Accepted(new { email, channel = request.Channel, expiresInSeconds = 300, developmentCode = "123456" });
+        }
+
+        if (string.IsNullOrWhiteSpace(phone))
         {
             return BadRequest(new { error = "Phone number is required." });
         }
 
         // MVP placeholder. Replace with SMS provider integration before production.
-        return Accepted(new { request.PhoneNumber, expiresInSeconds = 300, developmentCode = "123456" });
+        return Accepted(new { phoneNumber = phone, channel = request.Channel, expiresInSeconds = 300, developmentCode = "123456" });
     }
 
     [HttpPost("otp/verify")]
+    [EnableRateLimiting("otp")]
     public async Task<ActionResult<AuthResponse>> VerifyOtp(VerifyOtpRequest request, CancellationToken cancellationToken)
     {
         if (request.Code != "123456")
@@ -31,10 +49,29 @@ public sealed class AuthController(RydoDbContext db, JwtTokenService tokens) : C
             return Unauthorized(new { error = "Invalid OTP code." });
         }
 
-        var phone = request.PhoneNumber.Trim();
+        var phone = NormalizePhone(request.PhoneNumber);
+        var email = NormalizeEmail(request.Email);
+        if (request.Channel == OtpChannel.Email && !IsValidEmail(email))
+        {
+            return BadRequest(new { error = "A valid email address is required." });
+        }
+
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return BadRequest(new { error = "Phone number is required." });
+        }
+
+        if (request.Role == UserRole.Admin && !IsAdminOtpAllowed(phone, email))
+        {
+            return Forbid();
+        }
+
         var displayName = string.IsNullOrWhiteSpace(request.DisplayName) ? null : request.DisplayName.Trim();
-        var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim().ToLowerInvariant();
         var user = await db.Users.FirstOrDefaultAsync(x => x.PhoneNumber == phone, cancellationToken);
+        if (user is null && !string.IsNullOrWhiteSpace(email))
+        {
+            user = await db.Users.FirstOrDefaultAsync(x => x.Email == email, cancellationToken);
+        }
 
         if (user is null)
         {
@@ -44,14 +81,24 @@ public sealed class AuthController(RydoDbContext db, JwtTokenService tokens) : C
                 DisplayName = displayName,
                 Email = email,
                 Role = request.Role,
-                IsPhoneVerified = true
+                IsPhoneVerified = request.Channel == OtpChannel.Phone,
+                IsEmailVerified = request.Channel == OtpChannel.Email
             };
 
             db.Users.Add(user);
         }
         else
         {
-            user.IsPhoneVerified = true;
+            if (request.Channel == OtpChannel.Phone)
+            {
+                user.IsPhoneVerified = true;
+            }
+
+            if (request.Channel == OtpChannel.Email)
+            {
+                user.IsEmailVerified = true;
+            }
+
             user.Role = request.Role;
             user.DisplayName = displayName ?? user.DisplayName;
             user.Email = email ?? user.Email;
@@ -93,5 +140,50 @@ public sealed class AuthController(RydoDbContext db, JwtTokenService tokens) : C
         }
 
         return Ok(new AuthResponse(user.Id, user.Role, tokens.CreateToken(user), driverProfileId, user.DisplayName, user.Email));
+    }
+
+    private bool IsAdminOtpAllowed(string phoneNumber, string? email)
+    {
+        var configuredAdmins = configuration.GetSection("Auth:AdminPhoneNumbers").Get<string[]>() ?? [];
+        if (configuredAdmins.Any(x => string.Equals(x.Trim(), phoneNumber, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        var configuredAdminEmails = configuration.GetSection("Auth:AdminEmails").Get<string[]>() ?? [];
+        if (!string.IsNullOrWhiteSpace(email) && configuredAdminEmails.Any(x => string.Equals(x.Trim(), email, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return environment.IsDevelopment() && configuration.GetValue("Auth:AllowDevelopmentAdminOtp", true);
+    }
+
+    private static string NormalizePhone(string? phoneNumber)
+    {
+        return phoneNumber?.Trim() ?? string.Empty;
+    }
+
+    private static string? NormalizeEmail(string? email)
+    {
+        return string.IsNullOrWhiteSpace(email) ? null : email.Trim().ToLowerInvariant();
+    }
+
+    private static bool IsValidEmail(string? email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return false;
+        }
+
+        try
+        {
+            _ = new MailAddress(email);
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 }

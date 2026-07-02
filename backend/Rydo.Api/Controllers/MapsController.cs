@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Rydo.Api.Contracts;
 using Rydo.Api.Services;
 
@@ -11,6 +12,7 @@ namespace Rydo.Api.Controllers;
 public sealed class MapsController(GoogleMapsService maps) : ControllerBase
 {
     [HttpGet("autocomplete")]
+    [EnableRateLimiting("maps")]
     public async Task<ActionResult<IReadOnlyList<PlaceSuggestion>>> Autocomplete(
         [FromQuery] string input,
         [FromQuery] double? latitude,
@@ -26,6 +28,7 @@ public sealed class MapsController(GoogleMapsService maps) : ControllerBase
     }
 
     [HttpGet("places/{placeId}")]
+    [EnableRateLimiting("maps")]
     public async Task<ActionResult<PlaceDetails>> GetPlace(string placeId, CancellationToken cancellationToken)
     {
         var place = await maps.GetPlaceAsync(placeId, cancellationToken);
@@ -33,6 +36,7 @@ public sealed class MapsController(GoogleMapsService maps) : ControllerBase
     }
 
     [HttpPost("routes")]
+    [EnableRateLimiting("maps")]
     public async Task<ActionResult<RouteEstimate>> ComputeRoute(
         ComputeRouteRequest request,
         CancellationToken cancellationToken)

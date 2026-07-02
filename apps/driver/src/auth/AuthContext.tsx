@@ -1,15 +1,15 @@
 import * as SecureStore from 'expo-secure-store';
 import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
-import { DriverAuthSession, requestDriverOtp, verifyDriverOtp } from './authApi';
+import { DriverAuthSession, type OtpChannel, requestDriverOtp, verifyDriverOtp } from './authApi';
 
 const storageKey = 'rydo.driver.auth';
 
 type AuthState = {
   loading: boolean;
   session?: DriverAuthSession;
-  requestOtp: (phoneNumber: string) => Promise<void>;
-  verifyOtp: (phoneNumber: string, code: string, profile?: { displayName?: string; email?: string }) => Promise<void>;
+  requestOtp: (phoneNumber: string, email?: string, channel?: OtpChannel) => Promise<void>;
+  verifyOtp: (phoneNumber: string, code: string, profile?: { displayName?: string; email?: string }, channel?: OtpChannel) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -43,11 +43,11 @@ export function DriverAuthProvider({ children }: PropsWithChildren) {
     () => ({
       loading,
       session,
-      requestOtp: async (phoneNumber) => {
-        await requestDriverOtp(phoneNumber);
+      requestOtp: async (phoneNumber, email, channel = 'phone') => {
+        await requestDriverOtp(phoneNumber, email, channel);
       },
-      verifyOtp: async (phoneNumber, code, profile) => {
-        const nextSession = await verifyDriverOtp(phoneNumber, code, profile);
+      verifyOtp: async (phoneNumber, code, profile, channel = 'phone') => {
+        const nextSession = await verifyDriverOtp(phoneNumber, code, profile, channel);
         await writeSession(nextSession);
         setSession(nextSession);
       },
