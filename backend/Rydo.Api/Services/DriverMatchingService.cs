@@ -6,18 +6,24 @@ namespace Rydo.Api.Services;
 
 public sealed class DriverMatchingService(RydoDbContext db, IConfiguration configuration)
 {
-    public async Task<IReadOnlyList<Guid>> FindNearbyDriversAsync(Point pickupPoint, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<Guid>> FindNearbyDriversAsync(
+        Point pickupPoint,
+        CancellationToken cancellationToken,
+        IReadOnlyCollection<Guid>? excludedDriverProfileIds = null)
     {
         var matching = configuration.GetSection("DriverMatching");
         var radiusMeters = matching.GetValue("InitialRadiusMeters", 3000);
         var freshnessSeconds = matching.GetValue("LocationFreshnessSeconds", 45);
         var freshAfter = DateTimeOffset.UtcNow.AddSeconds(-freshnessSeconds);
+        var excluded = excludedDriverProfileIds is { Count: > 0 }
+            ? excludedDriverProfileIds.ToArray()
+            : [];
 
         return await db.DriverLocations
             .Where(x => x.RecordedAtUtc >= freshAfter)
             .Where(x => x.Position.IsWithinDistance(pickupPoint, radiusMeters))
             .Join(
-                db.Drivers.Where(x => x.IsOnline && x.IsVerified),
+                db.Drivers.Where(x => x.IsOnline && x.IsVerified && !excluded.Contains(x.Id)),
                 location => location.DriverProfileId,
                 driver => driver.Id,
                 (location, driver) => new

@@ -50,3 +50,4 @@ public sealed record TripListItemResponse(
 
 public sealed record UpdateTripStatusRequest(TripStatus Status);
 public sealed record AcceptTripRequest(Guid DriverProfileId);
+public sealed record DeclineTripRequest(Guid DriverProfileId);

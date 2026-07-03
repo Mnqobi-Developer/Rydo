@@ -42,6 +42,17 @@ export type TripListItem = {
   completedAtUtc?: string | null;
 };
 
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly body: string,
+  ) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
 export async function createTrip({
   session,
   pickup,
@@ -99,7 +110,7 @@ async function request<T>(path: string, accessToken: string, init?: RequestInit)
 
   if (!response.ok) {
     const problem = await response.text();
-    throw new Error(problem || `Request failed with HTTP ${response.status}`);
+    throw new ApiRequestError(problem || `Request failed with HTTP ${response.status}`, response.status, problem);
   }
 
   return response.json() as Promise<T>;

@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useDriverAuth } from '../auth/AuthContext';
 import { acceptTrip, cancelTrip, completeTrip, declineTrip, getDriverStatus, getDriverSummary, getDriverTrips, getRideTripId, markDriverArrived, setAvailability, startTrip, updateDriverLocation, type DriverSummaryStats, type RideRequest, type TripListItem } from '../rides/driverApi';
+import { getCurrentDriverLocation } from '../rides/driverLocation';
 import { useDriverRide } from '../rides/DriverRideContext';
 import { createRideConnection } from '../rides/driverRealtime';
 
@@ -247,29 +248,41 @@ export function DriverHomeScreen() {
 
     let disposed = false;
     const connection = createRideConnection(session.accessToken);
+    const stopConnection = () => {
+      void connection.stop().catch(() => undefined);
+    };
 
     connection.on('ride.requested', (request: RideRequest) => {
+      if (disposed) {
+        return;
+      }
+
       setPendingRide(request);
       router.push('/ride-request');
     });
 
-    connection
+    const startConnection = connection
       .start()
       .then(async () => {
+        if (disposed) {
+          stopConnection();
+          return;
+        }
+
         await connection.invoke('JoinDriverQueue', session.driverProfileId);
         if (!disposed) {
           setConnectionStatus('Waiting for nearby ride requests.');
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!disposed) {
-          setConnectionStatus('Realtime connection failed. Toggle online to retry.');
+          setConnectionStatus(getRequestErrorMessage(error));
         }
       });
 
     return () => {
       disposed = true;
-      void connection.stop();
+      void startConnection.finally(stopConnection);
     };
   }, [online, session, setPendingRide]);
 
@@ -284,10 +297,11 @@ export function DriverHomeScreen() {
     setConnectionStatus(nextOnline ? 'Connecting to Rydo dispatch...' : 'Go online to start receiving ride requests.');
 
     try {
-      await setAvailability(session.driverProfileId, nextOnline, session.accessToken);
       if (nextOnline) {
-        await updateDriverLocation(session.driverProfileId, session.accessToken);
+        const location = await getCurrentDriverLocation();
+        await updateDriverLocation(session.driverProfileId, session.accessToken, location);
       }
+      await setAvailability(session.driverProfileId, nextOnline, session.accessToken);
     } catch (error) {
       setOnline(!nextOnline);
       setConnectionStatus(getRequestErrorMessage(error));
@@ -347,8 +361,8 @@ export function RideRequestScreen() {
   };
 
   const declineRequest = async () => {
-    if (session && pendingRide) {
-      await declineTrip(getRideTripId(pendingRide), session.accessToken).catch(() => undefined);
+    if (session?.driverProfileId && pendingRide) {
+      await declineTrip(getRideTripId(pendingRide), session.driverProfileId, session.accessToken).catch(() => undefined);
     }
     setPendingRide(undefined);
     router.replace('/home');
@@ -389,6 +403,13 @@ export function NavigationScreen() {
   const [error, setError] = useState('');
 
   const tripStage = activeTrip?.status === 5 ? 'trip' : activeTrip?.status === 4 ? 'ready' : 'arriving';
+  const primaryActionLabel = tripStage === 'arriving'
+    ? 'I Have Arrived'
+    : tripStage === 'ready'
+      ? 'Start Trip'
+      : activeTrip?.preferredPaymentMethod === 1
+        ? 'Complete Trip & Cash Paid'
+        : 'Complete Trip';
 
   useEffect(() => {
     if (!activeTrip) {
@@ -412,7 +433,7 @@ export function NavigationScreen() {
           : await completeTrip(activeTrip.tripId, session.accessToken);
       setActiveTrip(nextTrip);
       if (nextTrip.status === 6) {
-        Alert.alert('Trip completed', 'The passenger trip has been completed.', [{ text: 'Done', onPress: () => { clearRide(); router.replace('/home'); } }]);
+        Alert.alert('Trip completed', 'The passenger trip has been completed.', [{ text: 'View Trips', onPress: () => { clearRide(); router.replace('/trips'); } }]);
       }
     } catch (requestError) {
       setError(getRequestErrorMessage(requestError));
@@ -452,7 +473,7 @@ export function NavigationScreen() {
         <Text style={styles.eta}>{tripStage === 'arriving' ? 'Arriving in 4 min' : tripStage === 'ready' ? 'Passenger notified' : '21 min remaining'}</Text>
         <Text style={styles.muted}>{formatFare(activeTrip.estimatedFare)} estimated fare</Text>
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        <View style={[styles.actions, layout.compact && styles.actionsCompact]}><SecondaryButton label="Cancel Trip" danger onPress={() => void cancelActiveTrip()} /><PrimaryButton label={submitting ? 'Updating...' : tripStage === 'arriving' ? 'I Have Arrived' : tripStage === 'ready' ? 'Start Trip' : 'Complete Trip'} disabled={submitting} onPress={() => void advanceTrip()} /></View>
+        <View style={[styles.actions, layout.compact && styles.actionsCompact]}><SecondaryButton label="Cancel Trip" danger onPress={() => void cancelActiveTrip()} /><PrimaryButton label={submitting ? 'Updating...' : primaryActionLabel} disabled={submitting} onPress={() => void advanceTrip()} /></View>
       </View>
     </Screen>
   );

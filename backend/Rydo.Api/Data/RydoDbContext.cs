@@ -14,6 +14,7 @@ public sealed class RydoDbContext(DbContextOptions<RydoDbContext> options) : DbC
     public DbSet<RoutePoint> RouteHistory => Set<RoutePoint>();
     public DbSet<Rating> Ratings => Set<Rating>();
     public DbSet<Dispute> Disputes => Set<Dispute>();
+    public DbSet<TripDecline> TripDeclines => Set<TripDecline>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,6 +50,14 @@ public sealed class RydoDbContext(DbContextOptions<RydoDbContext> options) : DbC
             entity.Property(x => x.EstimatedFare).HasPrecision(12, 2);
             entity.Property(x => x.FinalFare).HasPrecision(12, 2);
             entity.Property(x => x.PreferredPaymentMethod).HasDefaultValue(PaymentMethod.Cash);
+        });
+
+        modelBuilder.Entity<TripDecline>(entity =>
+        {
+            entity.HasIndex(x => new { x.TripId, x.DriverProfileId }).IsUnique();
+            entity.HasIndex(x => x.DriverProfileId);
+            entity.HasOne(x => x.Trip).WithMany(x => x.Declines).HasForeignKey(x => x.TripId);
+            entity.HasOne(x => x.DriverProfile).WithMany(x => x.DeclinedTrips).HasForeignKey(x => x.DriverProfileId);
         });
 
         modelBuilder.Entity<Payment>(entity =>
