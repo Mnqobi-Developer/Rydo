@@ -8,11 +8,13 @@ type BookingState = {
   route?: RouteEstimate;
   activeTrip?: TripResponse;
   paymentMethod: PaymentMethod;
+  autoUseCurrentLocation: boolean;
   setPickup: (place?: SelectedPlace) => void;
   setDestination: (place?: SelectedPlace) => void;
   setRoute: (route?: RouteEstimate) => void;
   setActiveTrip: (trip?: TripResponse) => void;
   setPaymentMethod: (method: PaymentMethod) => void;
+  enableCurrentLocationPickup: () => void;
   reset: () => void;
 };
 
@@ -24,6 +26,7 @@ export function BookingProvider({ children }: PropsWithChildren) {
   const [route, setRoute] = useState<RouteEstimate>();
   const [activeTrip, setActiveTrip] = useState<TripResponse>();
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(1);
+  const [autoUseCurrentLocation, setAutoUseCurrentLocation] = useState(true);
 
   const value = useMemo(
     () => ({
@@ -32,20 +35,23 @@ export function BookingProvider({ children }: PropsWithChildren) {
       route,
       activeTrip,
       paymentMethod,
+      autoUseCurrentLocation,
       setPickup,
       setDestination,
       setRoute,
       setActiveTrip,
       setPaymentMethod,
+      enableCurrentLocationPickup: () => setAutoUseCurrentLocation(true),
       reset: () => {
         setPickup(undefined);
         setDestination(undefined);
         setRoute(undefined);
         setActiveTrip(undefined);
         setPaymentMethod(1);
+        setAutoUseCurrentLocation(false);
       },
     }),
-    [activeTrip, destination, paymentMethod, pickup, route],
+    [activeTrip, autoUseCurrentLocation, destination, paymentMethod, pickup, route],
   );
 
   return <BookingContext.Provider value={value}>{children}</BookingContext.Provider>;

@@ -24,6 +24,7 @@ public sealed class Trip
     public DateTimeOffset? StartedAtUtc { get; set; }
     public DateTimeOffset? CompletedAtUtc { get; set; }
     public DateTimeOffset? CancelledAtUtc { get; set; }
+    public ICollection<TripDecline> Declines { get; set; } = [];
 }
 
 public enum RideType

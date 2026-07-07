@@ -12,4 +12,5 @@ public sealed class DriverProfile
     public int RatingCount { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public ICollection<Vehicle> Vehicles { get; set; } = [];
+    public ICollection<TripDecline> DeclinedTrips { get; set; } = [];
 }

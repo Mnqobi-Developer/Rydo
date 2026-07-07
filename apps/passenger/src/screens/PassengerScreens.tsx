@@ -25,11 +25,10 @@ import { decodePolyline } from '../maps/polyline';
 import { RydoMap } from '../maps/RydoMap';
 import type { PlaceSuggestion } from '../maps/types';
 import { useCurrentLocation } from '../maps/useCurrentLocation';
-import { createPayment } from '../payments/paymentsApi';
 import { useSavedPlaces, type SavedPlace } from '../places/SavedPlacesContext';
 import { createRating } from '../ratings/ratingsApi';
 import { createRideConnection, type TripUpdatedEvent } from '../trips/rideRealtime';
-import { createTrip, getPassengerTrips, updateTripStatus, type PaymentMethod, type TripListItem } from '../trips/tripsApi';
+import { ApiRequestError, createTrip, getPassengerTrips, updateTripStatus, type PaymentMethod, type TripListItem } from '../trips/tripsApi';
 
 export function SplashScreen() {
   return (
@@ -233,7 +232,7 @@ export function OtpScreen() {
 }
 
 export function HomeScreen() {
-  const { pickup, destination, route, setPickup, setDestination, setRoute } = useBooking();
+  const { pickup, destination, route, autoUseCurrentLocation, setPickup, setDestination, setRoute, enableCurrentLocationPickup } = useBooking();
   const { location, permissionDenied, loading, refresh } = useCurrentLocation();
   const { loading: authLoading, session } = useAuth();
   const { home, work, favorites } = useSavedPlaces();
@@ -247,10 +246,15 @@ export function HomeScreen() {
   }, [authLoading, session]);
 
   useEffect(() => {
-    if (!pickup && location) {
+    if (autoUseCurrentLocation && !pickup && location) {
       setPickup(location);
     }
-  }, [location, pickup, setPickup]);
+  }, [autoUseCurrentLocation, location, pickup, setPickup]);
+
+  const refreshCurrentLocation = () => {
+    enableCurrentLocationPickup();
+    void refresh();
+  };
 
   const useSavedDestination = (savedPlace?: SavedPlace) => {
     if (!savedPlace) {
@@ -284,7 +288,7 @@ export function HomeScreen() {
         <Pressable onPress={() => router.push('/book')}>
           <LocationField destination value={destination?.address ?? 'Where are you going?'} />
         </Pressable>
-        {permissionDenied && <SecondaryButton label="Enable Location" onPress={() => void refresh()} />}
+        {permissionDenied && <SecondaryButton label="Enable Location" onPress={refreshCurrentLocation} />}
         {route && (
           <View style={styles.routeSummary}>
             <Text style={styles.strong}>{formatDistance(route.distanceMeters)} • {formatDuration(route.durationSeconds)}</Text>
@@ -304,7 +308,7 @@ export function HomeScreen() {
 }
 
 export function BookRideScreen() {
-  const { pickup, destination, route, paymentMethod, setPickup, setDestination, setRoute, setPaymentMethod } = useBooking();
+  const { pickup, destination, route, paymentMethod, autoUseCurrentLocation, setPickup, setDestination, setRoute, setPaymentMethod, enableCurrentLocationPickup } = useBooking();
   const { location, permissionDenied, loading: locationLoading, refresh } = useCurrentLocation();
   const { savePlace } = useSavedPlaces();
   const layout = usePassengerLayout();
@@ -317,10 +321,15 @@ export function BookRideScreen() {
   const routeCoordinates = useMemo(() => decodePolyline(route?.encodedPolyline ?? ''), [route?.encodedPolyline]);
 
   useEffect(() => {
-    if (!pickup && location) {
+    if (autoUseCurrentLocation && !pickup && location) {
       setPickup(location);
     }
-  }, [location, pickup, setPickup]);
+  }, [autoUseCurrentLocation, location, pickup, setPickup]);
+
+  const refreshCurrentLocation = () => {
+    enableCurrentLocationPickup();
+    void refresh();
+  };
 
   useEffect(() => {
     if (query.trim().length < 3) {
@@ -397,7 +406,7 @@ export function BookRideScreen() {
       </View>
       <View style={[styles.topControls, layout.compact && styles.edgeCompact]}>
         <IconButton icon="chevron-back" onPress={() => safeBack('/home')} />
-        <IconButton icon="locate" onPress={() => void refresh()} />
+        <IconButton icon="locate" onPress={refreshCurrentLocation} />
       </View>
       <ScrollView
         style={[styles.bookSheet, layout.compact && styles.bookSheetCompact, layout.short && styles.bookSheetShort]}
@@ -439,7 +448,7 @@ export function BookRideScreen() {
             ))}
           </ScrollView>
         )}
-        {permissionDenied && <SecondaryButton label="Allow Current Location" onPress={() => void refresh()} />}
+        {permissionDenied && <SecondaryButton label="Allow Current Location" onPress={refreshCurrentLocation} />}
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
         {(pickup || destination) && (
           <Card style={styles.saveCard}>
@@ -480,7 +489,7 @@ export function BookRideScreen() {
 
 export function RideSelectionScreen() {
   const { pickup, destination, route, paymentMethod, setActiveTrip } = useBooking();
-  const { session } = useAuth();
+  const { session, signOut } = useAuth();
   const layout = usePassengerLayout();
   const routeCoordinates = useMemo(() => decodePolyline(route?.encodedPolyline ?? ''), [route?.encodedPolyline]);
   const baseFare = route?.estimatedFare ?? 0;
@@ -512,6 +521,13 @@ export function RideSelectionScreen() {
       setActiveTrip(trip);
       router.push('/matching');
     } catch (requestError) {
+      if (requestError instanceof ApiRequestError && requestError.status === 401) {
+        await signOut();
+        setError('Your session expired. Please sign in again to request a ride.');
+        router.replace('/login');
+        return;
+      }
+
       setError(getRequestErrorMessage(requestError));
     } finally {
       setSubmitting(false);
@@ -569,8 +585,15 @@ export function MatchingScreen() {
 
     let disposed = false;
     const connection = createRideConnection(session.accessToken);
+    const stopConnection = () => {
+      void connection.stop().catch(() => undefined);
+    };
 
     connection.on('trip.updated', (trip: TripUpdatedEvent) => {
+      if (disposed) {
+        return;
+      }
+
       const tripId = trip.tripId ?? trip.id;
       if (tripId !== activeTrip.tripId) {
         return;
@@ -586,9 +609,16 @@ export function MatchingScreen() {
       }
     });
 
-    connection
+    const startConnection = connection
       .start()
-      .then(() => connection.invoke('JoinTrip', activeTrip.tripId))
+      .then(async () => {
+        if (disposed) {
+          stopConnection();
+          return;
+        }
+
+        await connection.invoke('JoinTrip', activeTrip.tripId);
+      })
       .catch(() => {
         if (!disposed) {
           setStatusText('Realtime connection failed. Keep this screen open and retry if needed.');
@@ -597,7 +627,7 @@ export function MatchingScreen() {
 
     return () => {
       disposed = true;
-      void connection.stop();
+      void startConnection.finally(stopConnection);
     };
   }, [activeTrip, session, setActiveTrip]);
 
@@ -629,7 +659,15 @@ export function ArrivingScreen() {
 
     let disposed = false;
     const connection = createRideConnection(session.accessToken);
+    const stopConnection = () => {
+      void connection.stop().catch(() => undefined);
+    };
+
     connection.on('trip.updated', (trip: TripUpdatedEvent) => {
+      if (disposed) {
+        return;
+      }
+
       const tripId = trip.tripId ?? trip.id;
       if (tripId !== activeTrip.tripId) {
         return;
@@ -647,9 +685,16 @@ export function ArrivingScreen() {
       }
     });
 
-    connection
+    const startConnection = connection
       .start()
-      .then(() => connection.invoke('JoinTrip', activeTrip.tripId))
+      .then(async () => {
+        if (disposed) {
+          stopConnection();
+          return;
+        }
+
+        await connection.invoke('JoinTrip', activeTrip.tripId);
+      })
       .catch(() => {
         if (!disposed) {
           setStatusText('Realtime updates paused. Keep this screen open while we reconnect.');
@@ -658,7 +703,7 @@ export function ArrivingScreen() {
 
     return () => {
       disposed = true;
-      void connection.stop();
+      void startConnection.finally(stopConnection);
     };
   }, [activeTrip, session, setActiveTrip]);
 
@@ -707,7 +752,15 @@ export function ActiveTripScreen() {
 
     let disposed = false;
     const connection = createRideConnection(session.accessToken);
+    const stopConnection = () => {
+      void connection.stop().catch(() => undefined);
+    };
+
     connection.on('trip.updated', (trip: TripUpdatedEvent) => {
+      if (disposed) {
+        return;
+      }
+
       const tripId = trip.tripId ?? trip.id;
       if (tripId !== activeTrip.tripId) {
         return;
@@ -723,9 +776,16 @@ export function ActiveTripScreen() {
       }
     });
 
-    connection
+    const startConnection = connection
       .start()
-      .then(() => connection.invoke('JoinTrip', activeTrip.tripId))
+      .then(async () => {
+        if (disposed) {
+          stopConnection();
+          return;
+        }
+
+        await connection.invoke('JoinTrip', activeTrip.tripId);
+      })
       .catch(() => {
         if (!disposed) {
           setStatusText('Realtime updates paused. Keep this screen open while we reconnect.');
@@ -734,7 +794,7 @@ export function ActiveTripScreen() {
 
     return () => {
       disposed = true;
-      void connection.stop();
+      void startConnection.finally(stopConnection);
     };
   }, [activeTrip, session, setActiveTrip]);
 
@@ -759,9 +819,8 @@ export function ActiveTripScreen() {
 }
 
 export function PaymentScreen() {
-  const { session } = useAuth();
   const { route, destination, activeTrip, paymentMethod, setPaymentMethod } = useBooking();
-  const selectedMethod = paymentMethod;
+  const selectedMethod = activeTrip?.preferredPaymentMethod ?? paymentMethod;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const layout = usePassengerLayout();
@@ -772,31 +831,15 @@ export function PaymentScreen() {
     }
   }, [activeTrip?.preferredPaymentMethod, setPaymentMethod]);
 
-  const confirmPayment = async () => {
-    if (!session || !activeTrip) {
+  const continueToRating = () => {
+    if (!activeTrip) {
       router.replace('/home');
       return;
     }
 
     setSubmitting(true);
     setError('');
-    try {
-      await createPayment({
-        accessToken: session.accessToken,
-        tripId: activeTrip.tripId,
-        method: selectedMethod,
-        amount: activeTrip.estimatedFare ?? route?.estimatedFare ?? 0,
-      });
-      Alert.alert(
-        `${paymentMethodLabel(selectedMethod)} selected`,
-        selectedMethod === 1 ? 'Pay the driver at drop-off.' : `${paymentMethodLabel(selectedMethod)} payment has been recorded for this MVP trip.`,
-        [{ text: 'Continue', onPress: () => router.replace('/rating') }],
-      );
-    } catch (paymentError) {
-      setError(getRequestErrorMessage(paymentError));
-    } finally {
-      setSubmitting(false);
-    }
+    router.replace('/rating');
   };
 
   return (
@@ -805,14 +848,14 @@ export function PaymentScreen() {
         <Text style={textStyles.heading}>Payment</Text>
         <Card style={styles.fareCard}><Text style={styles.muted}>Trip fare</Text><Text style={styles.fare}>{formatFare(activeTrip?.estimatedFare ?? route?.estimatedFare ?? 0)}</Text><Text style={styles.muted}>Trip to {destination?.name ?? activeTrip?.destinationAddress ?? 'your destination'}</Text></Card>
         {paymentOptions.map((option) => (
-          <Pressable key={option.method} onPress={() => setPaymentMethod(option.method)} style={[styles.payment, selectedMethod === option.method && styles.selected]}>
+          <Pressable key={option.method} disabled={Boolean(activeTrip)} onPress={() => setPaymentMethod(option.method)} style={[styles.payment, selectedMethod === option.method && styles.selected, selectedMethod !== option.method && Boolean(activeTrip) && styles.disabledPayment]}>
             <Ionicons name={option.icon} size={28} color={colors.blue} />
             <View style={styles.flex}><Text style={styles.strong}>{option.title}</Text><Text style={styles.muted}>{option.detail}</Text></View>
             {selectedMethod === option.method && <Ionicons name="checkmark-circle" size={24} color={colors.blue} />}
           </Pressable>
         ))}
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        <PrimaryButton label={submitting ? 'Confirming payment...' : `Confirm ${paymentMethodLabel(selectedMethod)} Payment`} disabled={submitting} onPress={() => void confirmPayment()} />
+        <PrimaryButton label={submitting ? 'Opening rating...' : 'Rate Trip & Driver'} disabled={submitting} onPress={continueToRating} />
       </ScrollView>
     </Screen>
   );
@@ -1232,8 +1275,8 @@ const styles = StyleSheet.create({
   bookSheetShort: { maxHeight: '78%' },
   sheetContent: { gap: 10, paddingBottom: 6 },
   activeField: { borderRadius: 14, borderWidth: 2, borderColor: colors.blue },
-  searchInput: { minHeight: 54, borderRadius: 12, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 13 },
-  searchText: { flex: 1, color: colors.navy, fontSize: 16 },
+  searchInput: { width: '100%', minHeight: 54, borderRadius: 12, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 13 },
+  searchText: { flex: 1, width: '100%', minWidth: 0, alignSelf: 'stretch', color: colors.navy, fontSize: 16, paddingVertical: 0 },
   suggestions: { maxHeight: 180, borderWidth: 1, borderColor: colors.line, borderRadius: 12 },
   suggestionsShort: { maxHeight: 126 },
   suggestion: { minHeight: 62, padding: 12, borderBottomWidth: 1, borderBottomColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -1281,6 +1324,7 @@ const styles = StyleSheet.create({
   fareCard: { alignItems: 'center', gap: 4 },
   fare: { color: colors.navy, fontSize: 44, fontWeight: '900' },
   payment: { minHeight: 72, borderRadius: 14, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14 },
+  disabledPayment: { opacity: 0.45 },
   starRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginVertical: 20 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
   tag: { borderRadius: 18, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 14, paddingVertical: 10 },

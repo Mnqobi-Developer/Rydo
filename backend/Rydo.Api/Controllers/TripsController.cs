@@ -95,9 +95,21 @@ public sealed class TripsController(
             return Conflict(new { error = "Trip is no longer available." });
         }
 
+        var driverDeclined = await db.TripDeclines.AnyAsync(
+            x => x.TripId == trip.Id && x.DriverProfileId == request.DriverProfileId,
+            cancellationToken);
+        if (driverDeclined)
+        {
+            return Conflict(new { error = "This driver already declined the trip." });
+        }
+
         trip.DriverProfileId = request.DriverProfileId;
         trip.Status = TripStatus.DriverAssigned;
         trip.AcceptedAtUtc = DateTimeOffset.UtcNow;
+        if (trip.PreferredPaymentMethod == PaymentMethod.Card)
+        {
+            await UpsertTripPaymentAsync(trip, PaymentStatus.Paid, cancellationToken);
+        }
 
         await db.SaveChangesAsync(cancellationToken);
         var acceptedTrip = await LoadTripAsync(trip.Id, cancellationToken);
@@ -107,10 +119,49 @@ public sealed class TripsController(
 
     [HttpPost("{tripId:guid}/decline")]
     [EnableRateLimiting("trips")]
-    public async Task<ActionResult> Decline(Guid tripId, CancellationToken cancellationToken)
+    public async Task<ActionResult> Decline(Guid tripId, DeclineTripRequest request, CancellationToken cancellationToken)
     {
-        var tripExists = await db.Trips.AnyAsync(x => x.Id == tripId && x.Status == TripStatus.Matching, cancellationToken);
-        return tripExists ? NoContent() : NotFound();
+        var trip = await db.Trips.FirstOrDefaultAsync(x => x.Id == tripId, cancellationToken);
+        if (trip is null)
+        {
+            return NotFound();
+        }
+
+        if (trip.Status != TripStatus.Matching)
+        {
+            return Conflict(new { error = "Trip is no longer available." });
+        }
+
+        var driverExists = await db.Drivers.AnyAsync(x => x.Id == request.DriverProfileId, cancellationToken);
+        if (!driverExists)
+        {
+            return NotFound(new { error = "Driver profile was not found." });
+        }
+
+        var alreadyDeclined = await db.TripDeclines.AnyAsync(
+            x => x.TripId == trip.Id && x.DriverProfileId == request.DriverProfileId,
+            cancellationToken);
+        if (!alreadyDeclined)
+        {
+            db.TripDeclines.Add(new TripDecline
+            {
+                TripId = trip.Id,
+                DriverProfileId = request.DriverProfileId
+            });
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        var excludedDriverIds = await db.TripDeclines
+            .Where(x => x.TripId == trip.Id)
+            .Select(x => x.DriverProfileId)
+            .ToListAsync(cancellationToken);
+        var nextDriverIds = await matching.FindNearbyDriversAsync(trip.PickupPoint, cancellationToken, excludedDriverIds);
+        foreach (var driverId in nextDriverIds)
+        {
+            await notifications.NotifyDriverRequestAsync(driverId, trip);
+        }
+
+        return NoContent();
     }
 
     [HttpPost("{tripId:guid}/arrive")]
@@ -167,6 +218,10 @@ public sealed class TripsController(
         {
             trip.CompletedAtUtc = now;
             trip.FinalFare ??= trip.EstimatedFare;
+            if (trip.PreferredPaymentMethod == PaymentMethod.Cash)
+            {
+                await UpsertTripPaymentAsync(trip, PaymentStatus.Paid, cancellationToken);
+            }
         }
         else if (status == TripStatus.Cancelled)
         {
@@ -187,6 +242,31 @@ public sealed class TripsController(
             .Include(x => x.DriverProfile)
                 .ThenInclude(x => x!.Vehicles)
             .FirstAsync(x => x.Id == tripId, cancellationToken);
+    }
+
+    private async Task UpsertTripPaymentAsync(Trip trip, PaymentStatus status, CancellationToken cancellationToken)
+    {
+        var payment = await db.Payments.FirstOrDefaultAsync(x => x.TripId == trip.Id, cancellationToken);
+        DateTimeOffset? paidAt = status == PaymentStatus.Paid ? DateTimeOffset.UtcNow : null;
+        var amount = trip.FinalFare ?? trip.EstimatedFare;
+
+        if (payment is null)
+        {
+            db.Payments.Add(new Payment
+            {
+                TripId = trip.Id,
+                Method = trip.PreferredPaymentMethod,
+                Status = status,
+                Amount = amount,
+                PaidAtUtc = paidAt
+            });
+            return;
+        }
+
+        payment.Method = trip.PreferredPaymentMethod;
+        payment.Status = status;
+        payment.Amount = amount;
+        payment.PaidAtUtc = paidAt ?? payment.PaidAtUtc;
     }
 
     private static TripResponse ToResponse(Trip trip)

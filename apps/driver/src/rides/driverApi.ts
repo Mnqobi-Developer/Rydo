@@ -66,6 +66,13 @@ export type DriverSummaryStats = {
   ratingCount: number;
 };
 
+export type DriverLocationPayload = {
+  latitude: number;
+  longitude: number;
+  heading?: number | null;
+  speedMetersPerSecond?: number | null;
+};
+
 export async function getDriverStatus(driverProfileId: string, accessToken: string) {
   return request<DriverStatus>(`/api/drivers/${driverProfileId}/status`, accessToken);
 }
@@ -86,16 +93,11 @@ export async function setAvailability(driverProfileId: string, isOnline: boolean
   });
 }
 
-export async function updateDriverLocation(driverProfileId: string, accessToken: string) {
+export async function updateDriverLocation(driverProfileId: string, accessToken: string, location: DriverLocationPayload) {
   await request(`/api/drivers/${driverProfileId}/location`, accessToken, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      latitude: -26.1076,
-      longitude: 28.0567,
-      heading: 42,
-      speedMetersPerSecond: 0,
-    }),
+    body: JSON.stringify(location),
   });
 }
 
@@ -111,8 +113,12 @@ export async function acceptTrip(tripId: string, driverProfileId: string, access
   });
 }
 
-export async function declineTrip(tripId: string, accessToken: string) {
-  await request(`/api/trips/${tripId}/decline`, accessToken, { method: 'POST' });
+export async function declineTrip(tripId: string, driverProfileId: string, accessToken: string) {
+  await request(`/api/trips/${tripId}/decline`, accessToken, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ driverProfileId }),
+  });
 }
 
 export async function updateTripStatus(tripId: string, status: number, accessToken: string) {

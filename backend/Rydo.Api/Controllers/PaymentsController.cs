@@ -22,12 +22,14 @@ public sealed class PaymentsController(RydoDbContext db) : ControllerBase
         }
 
         var existingPayment = await db.Payments.FirstOrDefaultAsync(x => x.TripId == request.TripId, cancellationToken);
+        var status = ResolvePaymentStatus(trip, request.Method);
+        DateTimeOffset? paidAt = status == PaymentStatus.Paid ? DateTimeOffset.UtcNow : null;
         if (existingPayment is not null)
         {
             existingPayment.Method = request.Method;
             existingPayment.Amount = request.Amount;
-            existingPayment.Status = request.Method == PaymentMethod.Cash ? PaymentStatus.Pending : PaymentStatus.Paid;
-            existingPayment.PaidAtUtc = request.Method == PaymentMethod.Cash ? null : DateTimeOffset.UtcNow;
+            existingPayment.Status = status;
+            existingPayment.PaidAtUtc = paidAt ?? existingPayment.PaidAtUtc;
             await db.SaveChangesAsync(cancellationToken);
             return Ok(ToResponse(existingPayment));
         }
@@ -37,8 +39,8 @@ public sealed class PaymentsController(RydoDbContext db) : ControllerBase
             TripId = request.TripId,
             Method = request.Method,
             Amount = request.Amount,
-            Status = request.Method == PaymentMethod.Cash ? PaymentStatus.Pending : PaymentStatus.Paid,
-            PaidAtUtc = request.Method == PaymentMethod.Cash ? null : DateTimeOffset.UtcNow
+            Status = status,
+            PaidAtUtc = paidAt
         };
 
         db.Payments.Add(payment);
@@ -57,5 +59,15 @@ public sealed class PaymentsController(RydoDbContext db) : ControllerBase
     private static PaymentResponse ToResponse(Payment payment)
     {
         return new PaymentResponse(payment.Id, payment.TripId, payment.Method, payment.Status, payment.Amount, payment.Currency);
+    }
+
+    private static PaymentStatus ResolvePaymentStatus(Trip trip, PaymentMethod method)
+    {
+        return method switch
+        {
+            PaymentMethod.Card => PaymentStatus.Paid,
+            PaymentMethod.Cash when trip.Status == TripStatus.Completed => PaymentStatus.Paid,
+            _ => PaymentStatus.Pending
+        };
     }
 }
