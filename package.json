@@ -10,9 +10,17 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "api": "powershell -ExecutionPolicy Bypass -File ./scripts/run-api.ps1",
+    "api:lan": "powershell -ExecutionPolicy Bypass -File ./scripts/run-api-lan.ps1",
     "passenger": "npm run start -w @rydo/passenger",
+    "passenger:go": "powershell -ExecutionPolicy Bypass -File ./scripts/run-expo-go.ps1 -App passenger -Target lan",
+    "passenger:android": "powershell -ExecutionPolicy Bypass -File ./scripts/run-expo-go.ps1 -App passenger -Target android",
+    "passenger:ios": "powershell -ExecutionPolicy Bypass -File ./scripts/run-expo-go.ps1 -App passenger -Target ios",
     "passenger:web": "npm run web -w @rydo/passenger -- --port 8082 --host localhost",
     "driver": "npm run start -w @rydo/driver",
+    "driver:go": "powershell -ExecutionPolicy Bypass -File ./scripts/run-expo-go.ps1 -App driver -Target lan",
+    "driver:android": "powershell -ExecutionPolicy Bypass -File ./scripts/run-expo-go.ps1 -App driver -Target android",
+    "driver:ios": "powershell -ExecutionPolicy Bypass -File ./scripts/run-expo-go.ps1 -App driver -Target ios",
     "driver:web": "npm run web -w @rydo/driver -- --port 8083 --host localhost",
     "admin": "npm run start -w @rydo/admin",
     "admin:web": "npm run web -w @rydo/admin -- --port 8084 --host localhost",

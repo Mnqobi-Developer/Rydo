@@ -63,3 +63,47 @@ dotnet ef migrations add InitialCreate
 dotnet ef database update
 dotnet run
 ```
+
+## Run On Expo Go And Simulators
+
+Install Expo Go on your physical iPhone or Android device. Your phone and PC must be on the same Wi-Fi network.
+
+Start the backend on your LAN so a physical phone can reach it:
+
+```powershell
+npm run api:lan
+```
+
+In a second terminal, start the passenger app for Expo Go:
+
+```powershell
+npm run passenger:go
+```
+
+In another terminal, start the driver app for Expo Go:
+
+```powershell
+npm run driver:go
+```
+
+Scan the QR code with Expo Go. The launcher sets `EXPO_PUBLIC_RYDO_API_URL` to your PC LAN IP, for example `http://192.168.x.x:5090`.
+
+For Android Emulator, install Android Studio and create a virtual device from Device Manager. Use a recent Google APIs image, for example Pixel + API 34. Start that emulator, then run:
+
+```powershell
+npm run passenger:android
+npm run driver:android
+```
+
+The Android Emulator uses `http://10.0.2.2:5090` to reach the local backend.
+
+If you want to create emulators from the command line, install Android SDK Command-line Tools from Android Studio's SDK Manager. The old SDK Tools `avdmanager` is not enough on current Java runtimes.
+
+iOS Simulator requires macOS with Xcode. It cannot be created or run on Windows. On Windows, use Expo Go on a physical iPhone. On a Mac, run:
+
+```powershell
+npm run passenger:ios
+npm run driver:ios
+```
+
+If Expo Go cannot connect, allow `dotnet`, `node`, and port `5090` through Windows Firewall.
